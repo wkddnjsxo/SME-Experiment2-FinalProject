@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.npy
+*.csv
+*.mat
+*.png
+*.jpg
+*.jpeg
+*.log
+anchor_gnn_models/
+geoheatmap_results/
