@@ -15,15 +15,15 @@
 첫 번째 단계는 기지국별 거리 보정이다. 실제 RTT 기반 거리값은 기지국마다 편향과 scale 차이를 가질 수 있으므로, 모델은 각 기지국에 대해 학습 가능한 거리 보정 파라미터를 둔다. 보정된 거리는 다음과 같이 표현할 수 있다.
 
 $$
-d'_i = \operatorname{softplus}(a_i)d_i + b_i
+d'_i = \mathrm{softplus}(a_i)d_i + b_i
 $$
 
-여기서 $a_i$와 $b_i$는 $i$번째 기지국에 대한 학습 파라미터이다. $\operatorname{softplus}(\cdot)$를 사용하는 이유는 거리 scale이 음수가 되는 것을 방지하기 위해서이다. 이 단계는 기존의 고정 보정식을 사용하는 대신, 위치 예측 loss를 통해 각 기지국의 거리 보정 특성을 end-to-end로 학습하게 만든다.
+여기서 $a_i$와 $b_i$는 $i$번째 기지국에 대한 학습 파라미터이다. $\mathrm{softplus}(\cdot)$를 사용하는 이유는 거리 scale이 음수가 되는 것을 방지하기 위해서이다. 이 단계는 기존의 고정 보정식을 사용하는 대신, 위치 예측 loss를 통해 각 기지국의 거리 보정 특성을 end-to-end로 학습하게 만든다.
 
 두 번째 단계는 Anchor Reliability GNN이다. 본 알고리즘은 18개 기지국을 각각 하나의 노드로 보고, 각 노드에 보정 거리, 기지국 좌표, 거리의 상대적 크기, 측정값의 공간적 일관성에 대한 feature를 부여한다. 이후 message passing을 통해 각 기지국을 독립적으로 판단하지 않고, 다른 기지국들과의 관계 속에서 해당 기지국 측정값의 신뢰도를 추정한다. GNN의 출력은 각 기지국에 대한 reliability score이며, 이를 양수 가중치로 변환하여 WLS에 사용한다.
 
 $$
-w_i = \operatorname{softplus}(g_i) + \epsilon
+w_i = \mathrm{softplus}(g_i) + \epsilon
 $$
 
 여기서 $g_i$는 GNN이 출력한 $i$번째 기지국의 raw reliability score이고, $w_i$는 weighted least squares에 사용되는 기지국 신뢰도이다. $\epsilon$은 수치적으로 0에 가까운 가중치로 인한 불안정성을 막기 위한 작은 양수이다.
