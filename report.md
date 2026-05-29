@@ -10,41 +10,53 @@
 
 # 알고리즘 설명
 
-각 사용자에 대해 18개 기지국의 측정 거리값을 d = [d_1, d_2, ..., d_18]로 정의하고, i번째 기지국의 좌표를 s_i = (x_i, y_i)로 정의한다. 예측해야 하는 사용자 위치는 p = (x, y)이다. 모델의 최종 목표는 측정 거리값과 기지국 좌표를 입력받아 예측 위치 p_hat을 출력하는 것이다.
+각 사용자에 대해 18개 기지국의 측정 거리값을 $d = [d_1, d_2, \ldots, d_{18}]$로 정의하고, $i$번째 기지국의 좌표를 $s_i = (x_i, y_i)$로 정의한다. 예측해야 하는 사용자 위치는 $p = (x, y)$이다. 모델의 최종 목표는 측정 거리값과 기지국 좌표를 입력받아 예측 위치 $\hat{p}$를 출력하는 것이다.
 
 첫 번째 단계는 기지국별 거리 보정이다. 실제 RTT 기반 거리값은 기지국마다 편향과 scale 차이를 가질 수 있으므로, 모델은 각 기지국에 대해 학습 가능한 거리 보정 파라미터를 둔다. 보정된 거리는 다음과 같이 표현할 수 있다.
 
-d'_i = softplus(a_i) d_i + b_i
+$$
+d'_i = \operatorname{softplus}(a_i)d_i + b_i
+$$
 
-여기서 a_i와 b_i는 i번째 기지국에 대한 학습 파라미터이다. softplus를 사용하는 이유는 거리 scale이 음수가 되는 것을 방지하기 위해서이다. 이 단계는 기존의 고정 보정식을 사용하는 대신, 위치 예측 loss를 통해 각 기지국의 거리 보정 특성을 end-to-end로 학습하게 만든다.
+여기서 $a_i$와 $b_i$는 $i$번째 기지국에 대한 학습 파라미터이다. $\operatorname{softplus}(\cdot)$를 사용하는 이유는 거리 scale이 음수가 되는 것을 방지하기 위해서이다. 이 단계는 기존의 고정 보정식을 사용하는 대신, 위치 예측 loss를 통해 각 기지국의 거리 보정 특성을 end-to-end로 학습하게 만든다.
 
 두 번째 단계는 Anchor Reliability GNN이다. 본 알고리즘은 18개 기지국을 각각 하나의 노드로 보고, 각 노드에 보정 거리, 기지국 좌표, 거리의 상대적 크기, 측정값의 공간적 일관성에 대한 feature를 부여한다. 이후 message passing을 통해 각 기지국을 독립적으로 판단하지 않고, 다른 기지국들과의 관계 속에서 해당 기지국 측정값의 신뢰도를 추정한다. GNN의 출력은 각 기지국에 대한 reliability score이며, 이를 양수 가중치로 변환하여 WLS에 사용한다.
 
-w_i = softplus(g_i) + epsilon
+$$
+w_i = \operatorname{softplus}(g_i) + \epsilon
+$$
 
-여기서 g_i는 GNN이 출력한 i번째 기지국의 raw reliability score이고, w_i는 weighted least squares에 사용되는 기지국 신뢰도이다. epsilon은 수치적으로 0에 가까운 가중치로 인한 불안정성을 막기 위한 작은 양수이다.
+여기서 $g_i$는 GNN이 출력한 $i$번째 기지국의 raw reliability score이고, $w_i$는 weighted least squares에 사용되는 기지국 신뢰도이다. $\epsilon$은 수치적으로 0에 가까운 가중치로 인한 불안정성을 막기 위한 작은 양수이다.
 
 세 번째 단계는 GNN이 예측한 신뢰도 가중치를 이용한 pairwise weighted least squares 위치 계산이다. 거리 기반 위치추정의 기본 목적함수는 다음과 같이 표현할 수 있다.
 
-min_p sum_i w_i ( ||p - s_i|| - d'_i )^2
+$$
+\min_p \sum_i w_i \left(\|p - s_i\| - d'_i\right)^2
+$$
 
-이 식은 p에 대해 비선형이므로 직접 반복 최적화를 수행할 수도 있지만, 본 알고리즘에서는 계산 속도와 안정성을 위해 거리식의 차이를 이용한 선형화된 WLS를 사용한다. 각 기지국에 대해 ||p - s_i||^2 = d_i'^2 형태의 식을 세우고, 서로 다른 두 기지국의 식을 빼면 p에 대한 선형식이 만들어진다. 여러 anchor pair에 대해 이러한 선형식을 쌓으면 다음과 같은 형태가 된다.
+이 식은 $p$에 대해 비선형이므로 직접 반복 최적화를 수행할 수도 있지만, 본 알고리즘에서는 계산 속도와 안정성을 위해 거리식의 차이를 이용한 선형화된 WLS를 사용한다. 각 기지국에 대해 $\|p - s_i\|^2 = d_i'^2$ 형태의 식을 세우고, 서로 다른 두 기지국의 식을 빼면 $p$에 대한 선형식이 만들어진다. 여러 anchor pair에 대해 이러한 선형식을 쌓으면 다음과 같은 형태가 된다.
 
+$$
 A p = b
+$$
 
 이때 pairwise WLS 해는 다음과 같이 계산된다.
 
-p_wls = (A^T W A + lambda I)^(-1) A^T W b
+$$
+p_{\mathrm{wls}} = (A^T W A + \lambda I)^{-1} A^T W b
+$$
 
-여기서 W는 두 anchor의 reliability weight를 조합하여 만든 pair weight이고, lambda I는 행렬 역계산의 수치적 안정성을 높이기 위한 regularization 항이다. 이 구조를 사용하면 모델이 완전히 블랙박스로 좌표를 회귀하는 것이 아니라, 거리와 좌표 사이의 기하학적 관계를 명시적으로 반영할 수 있다.
+여기서 $W$는 두 anchor의 reliability weight를 조합하여 만든 pair weight이고, $\lambda I$는 행렬 역계산의 수치적 안정성을 높이기 위한 regularization 항이다. 이 구조를 사용하면 모델이 완전히 블랙박스로 좌표를 회귀하는 것이 아니라, 거리와 좌표 사이의 기하학적 관계를 명시적으로 반영할 수 있다.
 
-네 번째 단계는 residual correction이다. WLS는 기하학적으로 해석 가능한 위치를 제공하지만, 실제 RTT 오차에는 비선형 편향과 이상치 영향이 남아 있을 수 있다. 따라서 모델은 WLS 위치 p_wls에 대해 작은 보정량 Delta p를 추가로 예측한다.
+네 번째 단계는 residual correction이다. WLS는 기하학적으로 해석 가능한 위치를 제공하지만, 실제 RTT 오차에는 비선형 편향과 이상치 영향이 남아 있을 수 있다. 따라서 모델은 WLS 위치 $p_{\mathrm{wls}}$에 대해 작은 보정량 $\Delta p$를 추가로 예측한다.
 
-p_final = p_wls + Delta p
+$$
+p_{\mathrm{final}} = p_{\mathrm{wls}} + \Delta p
+$$
 
-Delta p는 GNN에서 얻은 전체 anchor feature와 WLS 결과를 기반으로 예측된다. 이 구조의 목적은 WLS가 담당하는 큰 위치 구조는 유지하면서, 데이터에서 반복적으로 나타나는 잔차 패턴만 신경망이 보정하도록 만드는 것이다. 최종적으로 main.py는 모든 사용자에 대해 p_final을 계산하고, 이를 모아 shape이 (2, num_user)인 p_hat을 반환한다.
+$\Delta p$는 GNN에서 얻은 전체 anchor feature와 WLS 결과를 기반으로 예측된다. 이 구조의 목적은 WLS가 담당하는 큰 위치 구조는 유지하면서, 데이터에서 반복적으로 나타나는 잔차 패턴만 신경망이 보정하도록 만드는 것이다. 최종적으로 main.py는 모든 사용자에 대해 $p_{\mathrm{final}}$을 계산하고, 이를 모아 shape이 $(2, \mathrm{num\_user})$인 $\hat{p}$를 반환한다.
 
-학습 loss는 최종 위치 예측 오차를 중심으로 구성하되, WLS 위치 자체도 너무 나빠지지 않도록 보조 loss를 포함한다. 또한 residual correction이 지나치게 커져서 WLS의 기하학적 의미를 무너뜨리지 않도록 보정량에 대한 regularization을 적용한다. 최종적으로 모델은 train.py에서 학습되고, 학습된 파라미터와 정규화 통계량은 model.pt로 저장된다. main.py는 이 model.pt를 불러와 hidden test의 d_hat과 기지국 좌표만으로 위치를 추론한다.
+학습 loss는 최종 위치 예측 오차를 중심으로 구성하되, WLS 위치 자체도 너무 나빠지지 않도록 보조 loss를 포함한다. 또한 residual correction이 지나치게 커져서 WLS의 기하학적 의미를 무너뜨리지 않도록 보정량에 대한 regularization을 적용한다. 최종적으로 모델은 train.py에서 학습되고, 학습된 파라미터와 정규화 통계량은 model.pt로 저장된다. main.py는 이 model.pt를 불러와 hidden test의 $d_{hat}$과 기지국 좌표만으로 위치를 추론한다.
 
 # Agent AI 활용 방안
 
@@ -73,7 +85,7 @@ Agent AI를 통해 단순히 코드를 생성한 것이 아니라, 실험 중 �
 
 중간 실험 과정에서 사용한 탐색 결과는 다음과 같다. 단, 아래 결과들은 최종 제출 모델과 완전히 같은 입력 조건이나 평가 방식이 아니므로, 직접적인 우열 비교가 아니라 알고리즘 선택을 위한 실험적 근거로 해석하였다.
 
-중간 실험에서 비교한 모델명은 다음과 같은 의미를 가진다. Fixed uncertainty-prior WLS는 신경망 학습 없이 사전에 계산한 거리 불확실성 기반 가중치만 사용하여 WLS를 수행한 방법이다. GNN learned-weight WLS only는 GNN이 각 기지국의 신뢰도 가중치를 학습하고, 이 가중치만 WLS에 반영한 모델이다. 이 경우 최종 위치는 WLS 결과 p_wls를 그대로 사용하며 residual correction은 적용하지 않는다. GNN WLS + residual correction은 GNN이 학습한 anchor weight로 WLS 위치를 계산한 뒤, 추가적인 잔차 보정량 Delta p를 더해 최종 위치를 얻는 구조이다. 마지막으로 Final submission model은 위 구조를 제출 환경에 맞게 재구성한 모델로, hidden test에서 사용할 수 없는 중간 CSV 파일 없이 DH_FR1.mat의 d_hat과 기지국 좌표만으로 동작하도록 만든 최종 모델이다.
+중간 실험에서 비교한 모델명은 다음과 같은 의미를 가진다. Fixed uncertainty-prior WLS는 신경망 학습 없이 사전에 계산한 거리 불확실성 기반 가중치만 사용하여 WLS를 수행한 방법이다. GNN learned-weight WLS only는 GNN이 각 기지국의 신뢰도 가중치를 학습하고, 이 가중치만 WLS에 반영한 모델이다. 이 경우 최종 위치는 WLS 결과 $p_{\mathrm{wls}}$를 그대로 사용하며 residual correction은 적용하지 않는다. GNN WLS + residual correction은 GNN이 학습한 anchor weight로 WLS 위치를 계산한 뒤, 추가적인 잔차 보정량 $\Delta p$를 더해 최종 위치를 얻는 구조이다. 마지막으로 Final submission model은 위 구조를 제출 환경에 맞게 재구성한 모델로, hidden test에서 사용할 수 없는 중간 CSV 파일 없이 DH_FR1.mat의 $d_{hat}$과 기지국 좌표만으로 동작하도록 만든 최종 모델이다.
 
 | 실험 단계 | 평가 방식 | 주요 결과 | 해석 |
 |---|---|---:|---|
