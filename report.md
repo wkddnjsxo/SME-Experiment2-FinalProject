@@ -1,3 +1,12 @@
+# 스마트 모빌리티 공학실험 Final Project
+
+<div align="right">
+
+**학번:** 12223649
+**이름:** 장원태
+
+</div>
+
 # 모티베이션 & 인트로
 
 본 프로젝트의 목표는 18개 기지국에서 측정된 RTT 기반 거리값을 이용하여 사용자 단말의 2차원 위치를 추정하는 것이다. 입력으로는 각 사용자에 대한 측정 거리 벡터와 기지국 좌표가 주어지며, 최종 출력은 사용자 위치의 예측값이다. 처음에는 거리값과 기지국 좌표가 주어지므로 삼변측량 또는 일반적인 least squares 기반 위치추정만으로 충분할 것이라고 예상했다. 그러나 중간 실험 과정에서 실제 RTT 측정값은 모든 기지국에서 균일하게 신뢰할 수 있는 값이 아니며, 특정 기지국이나 특정 위치 영역에서 오차가 크게 발생한다는 점을 확인하였다.
@@ -10,7 +19,13 @@
 
 # 알고리즘 설명
 
-각 사용자에 대해 18개 기지국의 측정 거리값을 $d = [d_1, d_2, \ldots, d_{18}]$로 정의하고, $i$번째 기지국의 좌표를 $s_i = (x_i, y_i)$로 정의한다. 예측해야 하는 사용자 위치는 $p = (x, y)$이다. 모델의 최종 목표는 측정 거리값과 기지국 좌표를 입력받아 예측 위치 $\hat{p}$를 출력하는 것이다.
+각 사용자에 대해 18개 기지국의 측정 거리값을 $d = [d_1, d_2, \cdots, d_{18}]$로 정의하고, $i$번째 기지국의 좌표를 $s_i = (x_i, y_i)$로 정의한다. 예측해야 하는 사용자 위치는 $p = (x, y)$이다. 모델의 최종 목표는 측정 거리값과 기지국 좌표를 입력받아 예측 위치 $\hat{p}$를 출력하는 것이다.
+
+본 알고리즘은 특정 논문 하나를 그대로 재구현한 것이 아니라, 여러 기존 연구의 핵심 아이디어를 RTT localization 문제에 맞게 결합한 구조이다. Beck, Stoica, and Li의 source localization 연구에서는 range measurement를 이용한 least squares 기반 위치추정 문제를 다루며, 본 연구는 여기서 거리식 기반 위치추정과 LS/WLS 문제 설정을 참고하였다. 다만 해당 연구는 주로 수식적 LS 해법에 초점을 두는 반면, 본 연구는 각 기지국의 가중치를 고정하지 않고 GNN이 데이터 기반으로 학습하도록 설계하였다.
+
+Gilmer et al.의 Message Passing Neural Network 연구와 Kipf and Welling의 Graph Convolutional Network 연구에서는 graph node들이 서로의 정보를 집계하여 node 또는 graph representation을 학습하는 개념을 제시한다. 본 연구는 이 graph message passing 개념을 분자 그래프나 citation graph가 아니라 18개 RTT 기지국 그래프에 적용하였다. 따라서 본 연구에서 node는 기지국이고, node feature는 기지국 좌표와 측정 거리 관련 feature이며, node output은 classification label이 아니라 WLS에 사용되는 anchor reliability score이다.
+
+He et al.의 residual learning 연구에서는 기준 mapping을 그대로 학습하기보다 기준값에 대한 잔차를 학습하는 방식이 효과적임을 보였다. 본 연구는 ResNet 구조를 이미지 인식에 그대로 적용한 것이 아니라, WLS가 계산한 1차 위치 $p_{\mathrm{wls}}$를 기준값으로 두고, 신경망이 잔차 보정량 $\Delta p$를 학습하도록 residual learning 개념을 위치추정 문제에 응용하였다. 정리하면, 참고 논문에서 가져온 부분은 range-based WLS 문제 설정, graph message passing, residual learning 개념이고, 본 연구에서 직접 설계한 부분은 이 세 가지를 RTT 기지국 신뢰도 학습 문제로 연결하여 anchor별 거리 보정, GNN reliability weight, pairwise WLS, residual correction을 하나의 end-to-end 모델로 구성한 점이다.
 
 첫 번째 단계는 기지국별 거리 보정이다. 실제 RTT 기반 거리값은 기지국마다 편향과 scale 차이를 가질 수 있으므로, 모델은 각 기지국에 대해 학습 가능한 거리 보정 파라미터를 둔다. 보정된 거리는 다음과 같이 표현할 수 있다.
 
@@ -18,7 +33,7 @@ $$
 d'_i = \mathrm{softplus}(a_i)d_i + b_i
 $$
 
-여기서 $a_i$와 $b_i$는 $i$번째 기지국에 대한 학습 파라미터이다. $\mathrm{softplus}(\cdot)$를 사용하는 이유는 거리 scale이 음수가 되는 것을 방지하기 위해서이다. 이 단계는 기존의 고정 보정식을 사용하는 대신, 위치 예측 loss를 통해 각 기지국의 거리 보정 특성을 end-to-end로 학습하게 만든다.
+여기서 $a_i$와 $b_i$는 $i$번째 기지국에 대한 학습 파라미터이다. $\mathrm{softplus}(\cdot)$를 사용하는 이유는 거리 scale이 음수가 되는 것을 방지하기 위해서이다. 이 단계는 기존의 고정 보정식을 사용하는 대신, 위치 예측 loss를 통해 각 기지국의 거리 보정 특성을 end-to-end로 학습하게 만든다. 이전 중간 실험에서는 RANSAC, Isotonic Regression, Quantile Regression을 사용하여 거리 보정과 불확실성 추정을 별도 CSV 파일로 만들었지만, 최종 제출 모델에서는 hidden test에서 사용할 수 없는 중간 파일 의존성을 제거하였다. 대신 raw $d_i$를 입력받아 모델 내부에서 각 anchor별 scale과 bias를 학습하도록 바꾸었다.
 
 두 번째 단계는 Anchor Reliability GNN이다. 본 알고리즘은 18개 기지국을 각각 하나의 노드로 보고, 각 노드에 보정 거리, 기지국 좌표, 거리의 상대적 크기, 측정값의 공간적 일관성에 대한 feature를 부여한다. 이후 message passing을 통해 각 기지국을 독립적으로 판단하지 않고, 다른 기지국들과의 관계 속에서 해당 기지국 측정값의 신뢰도를 추정한다. GNN의 출력은 각 기지국에 대한 reliability score이며, 이를 양수 가중치로 변환하여 WLS에 사용한다.
 
@@ -26,7 +41,7 @@ $$
 w_i = \mathrm{softplus}(g_i) + \epsilon
 $$
 
-여기서 $g_i$는 GNN이 출력한 $i$번째 기지국의 raw reliability score이고, $w_i$는 weighted least squares에 사용되는 기지국 신뢰도이다. $\epsilon$은 수치적으로 0에 가까운 가중치로 인한 불안정성을 막기 위한 작은 양수이다.
+여기서 $g_i$는 GNN이 출력한 $i$번째 기지국의 raw reliability score이고, $w_i$는 weighted least squares에 사용되는 기지국 신뢰도이다. $\epsilon$은 수치적으로 0에 가까운 가중치로 인한 불안정성을 막기 위한 작은 양수이다. 이 부분이 본 연구의 핵심 차별점이다. 기존 WLS는 사람이 사전에 정한 가중치나 모든 anchor에 동일한 가중치를 사용하는 경우가 많지만, 본 연구에서는 각 사용자의 측정 거리 패턴과 anchor 간 일관성을 보고 GNN이 동적으로 anchor reliability를 결정한다.
 
 세 번째 단계는 GNN이 예측한 신뢰도 가중치를 이용한 pairwise weighted least squares 위치 계산이다. 거리 기반 위치추정의 기본 목적함수는 다음과 같이 표현할 수 있다.
 
@@ -103,3 +118,23 @@ Agent AI를 통해 단순히 코드를 생성한 것이 아니라, 실험 중 �
 향후 개선 방향으로는 K-Fold ensemble을 적용하여 split 의존성을 줄이는 방법이 있다. 예를 들어 5개의 fold 모델을 각각 학습한 뒤 hidden test에서 평균 예측을 사용하면 단일 split 모델보다 안정적인 결과를 기대할 수 있다. 또한 q10, q50, q90 형태의 거리 불확실성 추정을 최종 .mat 단독 구조 안에 통합하면, GNN이 단순한 거리값뿐 아니라 측정 불확실성까지 함께 고려할 수 있다. 마지막으로 Huber weight나 RANSAC 기반 pair filtering을 WLS 계층에 추가하면 극단적인 RTT 이상치에 대한 강건성을 높일 수 있다.
 
 결론적으로 본 프로젝트의 최종 알고리즘은 단순 삼변측량이나 완전한 black-box regression 중 하나를 선택한 것이 아니라, 두 접근의 장점을 결합한 hybrid 구조이다. 기하학적 위치 계산은 WLS로 수행하고, 기지국별 신뢰도와 잔차 보정은 GNN이 학습하도록 분리함으로써, 제공된 데이터 수가 제한적인 상황에서도 비교적 안정적인 위치추정 성능을 얻을 수 있었다.
+
+# Reference
+
+본 연구는 특정 논문 하나를 그대로 재구현한 것이 아니라, 거리 기반 위치추정의 WLS 구조, graph message passing, residual correction 개념을 RTT localization 문제에 맞게 결합한 것이다. 아래 논문들은 본 연구에서 참고한 핵심 이론과 모델 설계 아이디어이다.
+
+[1] A. Beck, P. Stoica, and J. Li, “Exact and Approximate Solutions of Source Localization Problems,” IEEE Transactions on Signal Processing, vol. 56, no. 5, pp. 1770–1778, 2008.
+
+이 논문은 range measurement 또는 range-difference measurement를 이용한 source localization 문제를 least squares 관점에서 다룬다. 본 연구는 거리 측정값과 anchor 좌표로부터 위치를 추정하는 문제 설정과 LS/WLS 기반 위치 계산 관점을 참고하였다. 차이점은 본 연구에서는 anchor weight를 사람이 고정하지 않고 GNN이 학습하며, WLS 결과에 residual correction을 추가한다는 점이다.
+
+[2] J. Gilmer, S. S. Schoenholz, P. F. Riley, O. Vinyals, and G. E. Dahl, “Neural Message Passing for Quantum Chemistry,” Proceedings of the 34th International Conference on Machine Learning, PMLR 70:1263–1272, 2017.
+
+이 논문은 graph node들이 message passing을 통해 표현을 갱신하는 Message Passing Neural Network의 일반적 틀을 제시한다. 본 연구는 이 개념을 분자 그래프가 아니라 RTT 기지국 그래프에 적용하였다. 따라서 각 node는 기지국이고, message passing 결과는 molecular property가 아니라 각 기지국의 reliability score를 계산하는 데 사용된다.
+
+[3] T. N. Kipf and M. Welling, “Semi-Supervised Classification with Graph Convolutional Networks,” ICLR, 2017.
+
+이 논문은 graph-structured data에서 node feature와 graph structure를 함께 이용해 hidden representation을 학습하는 GCN 구조를 제안하였다. 본 연구는 node classification을 수행하지는 않지만, anchor node의 feature와 anchor 간 관계를 함께 반영하여 node representation을 만드는 graph feature aggregation 개념을 참고하였다. 본 연구의 차이점은 graph representation을 분류가 아니라 위치추정을 위한 anchor reliability regression에 사용했다는 점이다.
+
+[4] K. He, X. Zhang, S. Ren, and J. Sun, “Deep Residual Learning for Image Recognition,” Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 770–778, 2016.
+
+이 논문은 residual learning 구조를 제안하였다. 본 연구는 이미지 인식용 ResNet을 그대로 사용한 것이 아니라, WLS가 계산한 초기 위치 $p_{\mathrm{wls}}$를 기준값으로 두고 신경망이 잔차 보정량 $\Delta p$를 학습하도록 응용하였다. 즉 최종 위치를 $p_{\mathrm{final}} = p_{\mathrm{wls}} + \Delta p$로 정의하여, 기하학적 위치 계산으로 설명되지 않는 RTT 오차의 잔차만 보정하도록 설계하였다.
